@@ -2,7 +2,7 @@ import requests
 from time import sleep
 
 s = requests.Session()
-s.headers.update({'X-API-key': 'GWD0TB2'})
+s.headers.update({'X-API-key': 'WL0SY69A'})
 
 MAX_EXPOSURE = 24500
 MAX_ORDER_LIMIT = 5000
