@@ -8,7 +8,7 @@ Created on Wed Feb  5 17:12:48 2025
 import requests
 from time import sleep
 import numpy as np
-
+#API Details
 s = requests.Session()
 s.headers.update({'X-API-key': 'GWD0TB2'}) # Make sure you use YOUR API Key
 base = 'http://localhost:9999/v1' #replace number with port for API
@@ -19,65 +19,76 @@ MAX_SHORT_EXPOSURE_NET = -MAX_LONG_EXPOSURE_NET
 MAX_EXPOSURE_GROSS = 475000
 ORDER_LIMIT = 12500
 
+class stock():
+
+    def __init__(self, ticker):
+        self.ticker = ticker
+    
+    def get_bid_ask(self):
+        payload = {'ticker': self.ticker}
+        resp = s.get (base + '/securities/book', params = payload)
+        if resp.ok:
+            book = resp.json()
+            bid_side_book = book['bids']
+            ask_side_book = book['asks']
+            
+            bid_prices_book = [item["price"] for item in bid_side_book]
+            ask_prices_book = [item['price'] for item in ask_side_book]
+            
+            best_bid_price = bid_prices_book[0]
+            best_ask_price = ask_prices_book[0]
+    
+            return best_bid_price, best_ask_price
+    
+    def get_time_sales(self):
+        payload = {'ticker': self.ticker}
+        resp = s.get (base + '/securities/tas', params = payload)
+        if resp.ok:
+            book = resp.json()
+            time_sales_book = [item["quantity"] for item in book]
+            return time_sales_book
+    
+    def get_open_orders(self):
+        payload = {'ticker': self.ticker}
+        resp = s.get (base + '/orders', params = payload)
+        if resp.ok:
+            orders = resp.json()
+            buy_orders = [item for item in orders if item["action"] == "BUY"]
+            sell_orders = [item for item in orders if item["action"] == "SELL"]
+            return buy_orders, sell_orders
+    
+    def get_position(self):
+        payload = self.ticker
+        resp = s.get (base + '/securities', params = payload)
+        if resp.ok:
+            book = resp.json()
+            net_position = net_position[0]
+            return net_position
+
+RGLD = stock('RGLD')
+RFIN = stock('RFIN')
+INDX = stock('INDX')
+stocks = [RGLD, RFIN, INDX]
+
 def get_tick():   
     resp = s.get(base + '/case')
     if resp.ok:
         case = resp.json()
         return case['tick'], case['status']
 
-
-def get_bid_ask(ticker):
-    payload = {'ticker': ticker}
-    resp = s.get (base + '/securities/book', params = payload)
+def get_position(ticker):
+    payload = ticker
+    resp = s.get (base + '/securities', params=payload)
     if resp.ok:
         book = resp.json()
-        bid_side_book = book['bids']
-        ask_side_book = book['asks']
-        
-        bid_prices_book = [item["price"] for item in bid_side_book]
-        ask_prices_book = [item['price'] for item in ask_side_book]
-        
-        best_bid_price = bid_prices_book[0]
-        best_ask_price = ask_prices_book[0]
-  
-        return best_bid_price, best_ask_price
-
-def get_time_sales(ticker):
-    payload = {'ticker': ticker}
-    resp = s.get (base + '/securities/tas', params = payload)
-    if resp.ok:
-        book = resp.json()
-        time_sales_book = [item["quantity"] for item in book]
-        return time_sales_book
-
-def get_position():
-    resp = s.get (base + '/securities')
-    if resp.ok:
-        book = resp.json()
-        gross_position = abs(book[1]['position']) + abs(book[2]['position']) + 2 * abs(book[3]['position'])
-        net_position = book[1]['position'] + book[2]['position'] + 2 * book[3]['position']
-        return gross_position, net_position
-
-def get_open_orders(ticker):
-    payload = {'ticker': ticker}
-    resp = s.get (base + '/orders', params = payload)
-    if resp.ok:
-        orders = resp.json()
-        buy_orders = [item for item in orders if item["action"] == "BUY"]
-        sell_orders = [item for item in orders if item["action"] == "SELL"]
-        return buy_orders, sell_orders
+        net_position = net_position[0]
+        return net_position
 
 def get_order_status(order_id):
     resp = s.get (base + '/orders' + '/' + str(order_id))
     if resp.ok:
         order = resp.json()
         return order['status']
-    
-def get_ticker_position(ticker):
-    resp = s.get (base + '/securities')
-    if resp.ok:
-        book = resp.json()
-        return next(value['position'] for value in book if value['ticker'] == ticker)
         
 def get_lease_tickers():
     resp = s.get(base + '/leases')
