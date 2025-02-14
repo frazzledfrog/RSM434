@@ -13,13 +13,7 @@ s = requests.Session()
 s.headers.update({'X-API-key': 'GWD0TB2'}) # Make sure you use YOUR API Key
 url = 'http://localhost:9999/v1' #replace number with port for API
 
-# global variables
-MAX_LONG_EXPOSURE_NET = 25000
-MAX_SHORT_EXPOSURE_NET = -MAX_LONG_EXPOSURE_NET
-MAX_EXPOSURE_GROSS = 475000
-ORDER_LIMIT = 12500
-
-class stock():
+class Stock(): #defining the stock class
 
     def __init__(self, ticker, commission, rebate, max_trade_size, weight = 1):
         self.ticker = ticker #string of the ticker
@@ -45,54 +39,87 @@ class stock():
             return best_bid_price, best_ask_price
     
     def get_position(self): #returns the position of the stock
-        payload = self.ticker
+        payload = {'ticker': self.ticker}
         resp = s.get (url + '/securities', params = payload)
         if resp.ok:
             book = resp.json()
-            net_position = net_position[0]
+            net_position = book[0]["position"]
             return net_position
 
 #set up the stock objects, dictating their commission fee, rebate amount, max-trade-size, etc.
-RGLD = stock('RGLD', 0.01, 0.0125, 50000)
-RFIN = stock('RFIN', 0.01, 0.0125, 50000)
-INDX = stock('INDX', 0.005, 0.0075, 50000, 2)
+RGLD = Stock('RGLD', 0.01, 0.0125, 50000)
+RFIN = Stock('RFIN', 0.01, 0.0125, 50000)
+INDX = Stock('INDX', 0.005, 0.0075, 50000, 2)
 stocks = [RGLD, RFIN, INDX] #an array with each of the stock tickers in it
 
-class core():
-    def __init__(self, components, status = None, tick = None, net_position = None, gross_position = None):
+class Lease(): #defining the lease class, an object that holds the information for our leases
+
+    def __init__(self, ticker, output = None, input_1_per_output = None, input_2_per_output = None, id = None):
+        self.ticker = ticker
+        self.id = id
+        self.output = output
+        self.input_1_per_output = input_1_per_output
+        self.input_2_per_output = input_2_per_output
+
+    def start(self): #starts the lease and defines the id of the lease
+        resp = s.post(url + '/leases', params = {'ticker': self.ticker}) #important that the ticker defined when setting up the object is correct
+        resp = s.get(url + '/leases')
+        if resp.ok:
+            leases = resp.json()
+            self.id = next(item['id'] for item in leases if item['ticker'] == self.ticker) #sets self.id equal to the id of the lease we just created
+    
+
+#define our lease objects
+CREATE = Lease('ETF-Creation', {'ticker':'INDX', 'quantity': 1}, {'ticker': 'RFIN', 'quantity': 1}, {'ticker': 'RGLD', 'quantity': 1})
+REDEEM = Lease('ETF-Redemption')
+#start both leases in RIT and grab the IDs for the leases
+CREATE.start()
+REDEEM.start()
+
+
+class Trader(): #defining the core class, an object which will hold all of the trader variables such as status, gross position, etc.
+    def __init__(self, components, status = None, tick = None, net_position = 0, gross_position = 0, creation_id = None, redemption_id = None):
         self.status = status
         self.tick = tick
         self.net_position = net_position
         self.gross_position = gross_position
         self.components = components
+        self.creation_id = creation_id
+        self.redemption_id = redemption_id
 
-    def get_tick(self):
+    def get_tick(self): #gets the tick and status of the case
         resp = s.get(url + '/case')
         if resp.ok:
             case = resp.json()
             self.tick, self.status = case['tick'], case['status']
+    
+    def update(self): #gets the current position of each stock, weighted according to case rules
+        self.net_position = 0 #reset net_position
+        self.gross_position = 0 #reset gross position
+        for item in self.components: #go through each item in the components list and add them to the ticker, multiplying by the weight
+            pos = item.get_position()
+            self.net_position += pos * item.weight
+            self.gross_position += abs(pos) * item.weight
 
-def get_position(ticker):
-payload = ticker
-resp = s.get (base + '/securities', params=payload)
-if resp.ok:
-    book = resp.json()
-    net_position = net_position[0]
-    return net_position
+    def start_leases(self): #starts the leases for the converters and stores the ids for them in the object
+        resp = s.post(url + '/leases', params = {'ticker': 'ETF-Creation'})
+        resp = s.post(url + '/leases', params = {'ticker': 'ETF-Redemption'})
+        resp = s.get(url + '/leases')
+        if resp.ok:
+            leases = resp.json()
+            self.creation_id = next(item['id'] for item in leases if item['ticker'] == 'ETF-Creation')
+            self.redemption_id = next(item['id'] for item in leases if item['ticker'] == 'ETF-Redemption')
 
-def get_order_status(order_id):
-resp = s.get (base + '/orders' + '/' + str(order_id))
-if resp.ok:
-    order = resp.json()
-    return order['status']
+#set up our core object
+me = Trader(stocks)
     
 def get_lease_tickers():
-resp = s.get(base + '/leases')
-if resp.ok:
-    lease = resp.json()
-    lease_id_redemption = lease[0]['id']
-    lease_id_creation = lease[1]['id']
-    return lease_id_redemption, lease_id_creation  
+    resp = s.get(url + '/leases')
+    if resp.ok:
+        lease = resp.json()
+        lease_id_redemption = lease[0]['id']
+        lease_id_creation = lease[1]['id']
+        return lease_id_redemption, lease_id_creation  
 
 #initialize leases and wait a second for them to come online    
 resp = s.post(base + '/leases', params = {'ticker': 'ETF-Redemption'})         
