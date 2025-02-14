@@ -31,7 +31,7 @@ class Stock(): #defining the stock class
         self.weight = weight #weight of the stock for purpose of calculating limits
         self.bid_price = None
         self.ask_price = None
-        self.net_position = None
+        self.net_position = 0
 
     #change following functions to update object values
     def get_bid_ask(self): #returns the bid and ask of the ticker
@@ -57,12 +57,18 @@ class Stock(): #defining the stock class
             book = resp.json()
             self.net_position = book[0]["position"]
 
+class Currency(Stock): #set up the currency class, a subclass of the Stock class
+    def __init__(self, ticker):
+        self.ticker = ticker
+        self.net_position = 0
 
 #set up the stock objects, dictating their commission fee, rebate amount, max-trade-size, etc.
 RGLD = Stock('RGLD', 0.01, 0.0125)
 RFIN = Stock('RFIN', 0.01, 0.0125)
 INDX = Stock('INDX', 0.005, 0.0075, 2)
 stocks = [RGLD, RFIN, INDX] #an array with each of the stock tickers in it
+#set up currency object
+CAD = Currency('CAD')
 
 class Lease(): #defining the lease class, an object that holds the information for our leases
 
@@ -84,7 +90,7 @@ class Lease(): #defining the lease class, an object that holds the information f
 
 #define our lease objects
 CREATE = Lease('ETF-Creation', INDX, [RGLD, RFIN],)
-REDEEM = Lease('ETF-Redemption')
+REDEEM = Lease('ETF-Redemption', [RGLD, RFIN], [INDX, CAD])
 
 #start both leases in RIT and grab the IDs for the leases
 CREATE.start()
@@ -115,15 +121,9 @@ class Trader(): #defining the core class, an object which will hold all of the t
 
 #set up our core object
 me = Trader(stocks)
-    
-def get_lease_tickers():
-    resp = s.get(url + '/leases')
-    if resp.ok:
-        lease = resp.json()
-        lease_id_redemption = lease[0]['id']
-        lease_id_creation = lease[1]['id']
-        return lease_id_redemption, lease_id_creation  
 
+
+""" 
 def main():
 tick, status = get_tick()
 ticker_list = ['RGLD','RFIN','INDX']
@@ -227,3 +227,4 @@ main()
 
 
 
+ """
