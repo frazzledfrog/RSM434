@@ -11,8 +11,8 @@ MAX_SHORT_EXPOSURE_NET = -50000
 MAX_EXPOSURE_NET = 50000
 MAX_EXPOSURE_GROSS = 100000
 ORDER_LIMIT = 10000
-TRADE_BUFFER = 0.4
-REBALANCE_BUFFER = 0.6
+TRADE_BUFFER = 0.2
+REBALANCE_BUFFER = 0.3
 # BUFFER is to make sure that the mispricing covers the trading commission
 # and takes into account of the price difference of using MARKET orders
 TARGET_STOCK_TRACKER = None
