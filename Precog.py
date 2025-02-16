@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Feb  5 17:12:48 2025
-
-@author: alxnd
-"""
-
 import requests
 from time import sleep
 import numpy as np
@@ -13,7 +6,7 @@ s = requests.Session()
 s.headers.update({'X-API-key': 'GWD0TB2'}) # Make sure you use YOUR API Key
 url = 'http://localhost:9999/v1' #replace number with port for API
 
-def check_resp(resp, action):
+def check_resp(resp, action): #function to call which checks whether a resp returned a valid code, and if it doesn't, prints the error code
     if resp.ok:
         return True
     else:
@@ -21,20 +14,20 @@ def check_resp(resp, action):
         return False
 
 class Stock(): #defining the stock class
-    max_trade_size = 50000
+    trade_size = 25000 #may only be an even number to maintain parity
     #fix syntax for fixed variables
     def __init__(self, ticker, commission, rebate, weight = 1):
         self.ticker = ticker #string of the ticker
         self.commission = commission #what is the commission cost per unit
         self.rebate = rebate #what is the rebate per passive order filled
-        self.max_trade_size = Stock.max_trade_size #max trade size
         self.weight = weight #weight of the stock for purpose of calculating limits
         self.bid_price = None
         self.ask_price = None
         self.net_position = 0
+        self.trade_size = Stock.trade_size #remember to adjust any use of this for weights later
 
     #change following functions to update object values
-    def get_bid_ask(self): #returns the bid and ask of the ticker
+    def GetBidAsk(self): #returns the bid and ask of the ticker
         payload = {'ticker': self.ticker}
         resp = s.get (url + '/securities/book', params = payload) 
         if check_resp(resp, "get_bid_ask"):
@@ -50,7 +43,7 @@ class Stock(): #defining the stock class
             self.ask_price = ask_prices_book[0]
         
     
-    def get_position(self): #returns the position of the stock
+    def GetPosition(self): #updates the position of the stock
         payload = {'ticker': self.ticker}
         resp = s.get (url + '/securities', params = payload)
         if check_resp(resp, "get_position"):
@@ -72,13 +65,14 @@ CAD = Currency('CAD')
 
 class Lease(): #defining the lease class, an object that holds the information for our leases
 
-    def __init__(self, ticker, outputs, inputs):
+    def __init__(self, ticker, outputs, inputs, inputs_quant):
         self.ticker = ticker
         self.id = None
         self.outputs = outputs
         self.inputs = inputs
+        self.inputs_quant = inputs_quant
 
-    def start(self): #starts the lease and defines the id of the lease
+    def Start(self): #starts the lease and defines the id of the lease
         resp = s.post(url + '/leases', params = {'ticker': self.ticker})
         check_resp(resp, "Starting Lease") #important that the ticker defined when setting up the object is correct
         
@@ -86,145 +80,84 @@ class Lease(): #defining the lease class, an object that holds the information f
         if check_resp(resp, "Starting lease get"):
             leases = resp.json()
             self.id = next(item['id'] for item in leases if item['ticker'] == self.ticker) #sets self.id equal to the id of the lease we just created
-    
+
+    def Use(self, quantity = 100000):
+        s.post(url + '/leases/' + str(self.id), params={'from1': self.inputs[0], 'quantity1': np.ceil(quantity * self.inputs_quant[0]), 'from2': self.inputs[1], 'quantity2': np.ceil(quantity * self.inputs_quant[1])})
 
 #define our lease objects
-CREATE = Lease('ETF-Creation', INDX, [RGLD, RFIN],)
-REDEEM = Lease('ETF-Redemption', [RGLD, RFIN], [INDX, CAD])
+CREATE = Lease('ETF-Creation', INDX, [RGLD, RFIN], [1, 1])
+REDEEM = Lease('ETF-Redemption', [RGLD, RFIN], [INDX, CAD], [1, 0.0375])
 
-#start both leases in RIT and grab the IDs for the leases
-CREATE.start()
-REDEEM.start()
-
-
-class Trader(): #defining the core class, an object which will hold all of the trader variables such as status, gross position, etc.
-    def __init__(self, components, status = None, tick = None, net_position = 0, gross_position = 0):
-        self.status = status
-        self.tick = tick
-        self.net_position = net_position
-        self.gross_position = gross_position
-        self.components = components
-
-    def get_tick(self): #gets the tick and status of the case
-        resp = s.get(url + '/case')
-        if resp.ok:
-            case = resp.json()
-            self.tick, self.status = case['tick'], case['status']
+def get_tick(): #gets the tick and status of the case
+    resp = s.get(url + '/case')
+    if resp.ok:
+        case = resp.json()
+        return case['tick'], case['status']
     
-    def update(self): #gets the current position of each stock, weighted according to case rules
-        self.net_position = 0 #reset net_position
-        self.gross_position = 0 #reset gross position
-        for item in self.components: #go through each item in the components list and add them to the ticker, multiplying by the weight
-            pos = item.get_position()
-            self.net_position += pos * item.weight
-            self.gross_position += abs(pos) * item.weight
+def update_pos(): #gets the net_position then gross_position
+    for item in stocks: #go through each item in the components list and add them to the ticker, multiplying by the weight
+        pos = item.get_position()
+        net_position += pos * item.weight
+        gross_position += abs(pos) * item.weight
+    return net_position, gross_position
 
-#set up our core object
-me = Trader(stocks)
+def spreads(): #updates spreads and updates item bid-asks (not in that order lol)
+    #before calculating these spreads, we update the items in our components array
+    for item in stocks:
+        item.GetBidAsk()
+    #first the long-arb logic, we are including the fees in here
+    long_etf_spread = stocks[0].bid_price + stocks[1].bid_price - stocks[2].ask_price - 0.0625
+    #now the short-arb logic, again including fees
+    short_etf_spread = stocks[2].bid_price - stocks[0].ask_price - stocks[1].ask_price - 0.025
+    return long_etf_spread, short_etf_spread
 
+def long_etf(): #submits 3 orders, selling RGLD, then buying INDX, then selling RFIN -- no sleep built into it
+    s.post(url + '/orders', params = {'ticker': RGLD.ticker, 'type': 'MARKET', 'quantity': RGLD.trade_size, 'action': 'SELL'})
+    s.post(url + '/orders', params = {'ticker': INDX.ticker, 'type': 'MARKET', 'quantity': INDX.trade_size, 'action': 'BUY'})
+    s.post(url + '/orders', params = {'ticker': RFIN.ticker, 'type': 'MARKET', 'quantity': RFIN.trade_size, 'action': 'SELL'})
 
-""" 
-def main():
-tick, status = get_tick()
-ticker_list = ['RGLD','RFIN','INDX']
-market_prices = np.array([0.,0.,0.,0.,0.,0.])
-market_prices = market_prices.reshape(3,2)
+def short_etf(): #inverse to above
+    s.post(url + '/orders', params = {'ticker': RGLD.ticker, 'type': 'MARKET', 'quantity': RGLD.trade_size, 'action': 'BUY'})
+    s.post(url + '/orders', params = {'ticker': INDX.ticker, 'type': 'MARKET', 'quantity': INDX.trade_size, 'action': 'SELL'})
+    s.post(url + '/orders', params = {'ticker': RFIN.ticker, 'type': 'MARKET', 'quantity': RFIN.trade_size, 'action': 'BUY'})
 
-while tick < 298:
-    
-    lease_number_redemption, lease_number_creation = get_lease_tickers()
-    
-    for i in range(3):
-        
-        ticker_symbol = ticker_list[i]
-        market_prices[i,0], market_prices[i,1] = get_bid_ask(ticker_symbol)
-    
-    gross_position, net_position = get_position()
-        
-    if gross_position < MAX_EXPOSURE_GROSS and net_position == 0:
-        
-            indx_position = abs(get_ticker_position('INDX'))
-            
-            # Trading behavior
-                
-                # If underlying is overpriced:
-            if market_prices[0, 0] + market_prices[1, 0] >= market_prices[2, 1] + 0.07: # spread of 0.07+
-                resp = s.post(base + '/orders', params = {'ticker': 'RGLD', 'type': 'MARKET', 'quantity': 10000, 'price': market_prices[0, 1], 'action': 'SELL'})
-                resp = s.post(base + '/orders', params = {'ticker': 'RFIN', 'type': 'MARKET', 'quantity': 10000, 'price': market_prices[1, 1], 'action': 'SELL'})
-                resp = s.post(base + '/orders', params = {'ticker': 'INDX', 'type': 'MARKET', 'quantity': 10000, 'price': market_prices[2, 0], 'action': 'BUY'})
-                
-                sleep(0.03)
-                
-                indx_position = abs(get_ticker_position('INDX'))
-
-            # If underlying is underpriced    
-            elif market_prices[0, 1] + market_prices[1, 1] <= market_prices[2, 0] - 0.03: # spread of 0.03+
-                resp = s.post(base + '/orders', params = {'ticker': 'RGLD', 'type': 'MARKET', 'quantity': 10000, 'price': market_prices[0, 0], 'action': 'BUY'})
-                resp = s.post(base + '/orders', params = {'ticker': 'RFIN', 'type': 'MARKET', 'quantity': 10000, 'price': market_prices[1, 0], 'action': 'BUY'})
-                resp = s.post(base + '/orders', params = {'ticker': 'INDX', 'type': 'MARKET', 'quantity': 10000, 'price': market_prices[2, 1], 'action': 'SELL'})
-                
-                sleep(0.03)
-                
-                indx_position = abs(get_ticker_position('INDX'))
-            
-
-            # Convert/Redeem ETF after index position >= 100,000 shares
-            if indx_position > 50000:
-                
-                etf_position = get_ticker_position('INDX')
-                
-                # Redeem ETF from the position
-                if 100000 > etf_position > 50000:
-                    quantity = 100000
-                    resp = s.post(base + '/leases/' + str(lease_number_redemption), params = {
-                        'from1': 'INDX',
-                        'quantity1': int(quantity),
-                        'from2': 'CAD',
-                        'quantity2': int(quantity * 0.0375)})
-                    
-                    
-                    indx_position = abs(get_ticker_position('INDX'))
-
-                # Create ETF the position
-                elif -100000 < etf_position < -50000:
-                    quantity = 100000
-                    resp = s.post(base + '/leases/' + str(lease_number_creation), params = {
-                        'from1':'RGLD', 
-                        'quantity1': int(quantity), 
-                        'from2': 'RFIN', 
-                        'quantity2': int(quantity)})
-                    
-                    
-                    indx_position = abs(get_ticker_position('INDX'))
-    tick, status = get_tick()
-indx_position = abs(get_ticker_position('INDX'))
-etf_position = get_ticker_position('INDX')
-
-# Redeem ETF from the position
-if etf_position > 0:
-    quantity = min(etf_position,100000)
-    resp = s.post(base + '/leases/' + str(lease_number_redemption), params = {
-        'from1': 'INDX',
-        'quantity1': int(quantity),
-        'from2': 'CAD',
-        'quantity2': int(quantity * 0.0375)})
-
-# Create ETF the position
-elif etf_position < 0:
-    quantity = min(100000,-etf_position)
-    resp = s.post(base + '/leases/' + str(lease_number_creation), params = {
-        'from1':'RGLD', 
-        'quantity1': int(quantity), 
-        'from2': 'RFIN', 
-        'quantity2': int(quantity)})
-else:
-    pass
-    
-    indx_position = abs(get_ticker_position('INDX'))
-
-if __name__ == '__main__':
-main()
-
-
-
- """
+def main(): #our main trading loop
+    #first set up our leases
+    CREATE.Start()
+    REDEEM.Start()
+    #now get the status and tick of the case to decide whether to launch into the while case
+    tick, status = get_tick
+    stable = 0
+    while status == 'ACTIVE':
+        #first check will be for position limits -- if we are in danger of exceeding our limits, we stop what we are doing!
+        net_position, gross_position = update_pos()
+        if net_position == 0 and gross_position <= 400000: #if safe to do so and it exists, execute arb oppportunity
+            #next check will be if there is an arb position!
+            long_etf, short_etf = spreads() #updates the values in me determining which if any arb strategy would be good
+            if long_etf > 0:
+                long_etf()
+                stable = 0
+            elif short_etf > 0:
+                short_etf()
+                stable = 0
+            else:
+                stable += 1
+        if INDX.net_position >= 100000: #use the leases to neutralize gross position if it makes sense to do so
+            REDEEM.Use()
+            sleep(1.99)
+            stable = 0
+        elif INDX.net_position <= -100000:
+            CREATE.Use()
+            sleep(1.99)
+            stable = 0
+        else: # logic for if the price sits somewhere in a range that more than 3 cents away from an arb opportunity for EITHER direction, and our gross is not 0, use the converter
+            long_etf, short_etf = spreads()
+            if long_etf < -0.03 and short_etf < -0.03:
+                if INDX.net_position > 0:
+                    REDEEM.Use(INDX.net_position)
+                    sleep(1.99)
+                elif INDX.net_position < 0:
+                    CREATE.Use(INDX.net_position)
+                    sleep(1.99)
+        sleep(0.01) #eep a little bit to prevent accidental overloading of the API when nothing is happening
+        tick, status = get_tick()
