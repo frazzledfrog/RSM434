@@ -50,17 +50,19 @@ class Portfolio():
     def __init__(self, stocks): #where tickers is an array of stock objects
         self.stocks = stocks
         self.gross_position = 0
-        self_net_position = 0
+        self.net_position = 0
 
     def GetBidAsk(self):
         for item in self.stocks:
-            item.GetBidAsk
+            item.GetBidAsk()
 
     def update_pos(self):
+        self.gross_position = 0
+        self.net_position
         for item in self.stocks:
-            pos = item.get_position()
-            net_position += pos * item.weight
-            gross_position += abs(pos) * item.weight
+            pos = item.GetPosition()
+            self.net_position += pos * item.weight
+            self.gross_position += abs(pos) * item.weight
 
     def spreads(self): #updates spreads and updates item bid-asks (not in that order lol)
         #before calculating these spreads, we update the items in our components array
@@ -148,8 +150,7 @@ def main(): #our main trading loop
     REDEEM.Start()
 
     #now get the status and tick of the case to decide whether to launch into the while case
-    tick, status = get_tick
-    start_trading = 0
+    tick, status = get_tick()
 
 
     while status == 'ACTIVE':
@@ -174,25 +175,21 @@ def main(): #our main trading loop
 
             if INDX.net_position >= 100000: #use the leases to neutralize gross position if it makes sense to do so
                 REDEEM.Use()
-                #sleep(1.99)
-                start_trading = get_tick()+2
+                sleep(1.99)
             elif INDX.net_position <= -100000:
                 CREATE.Use()
-                #sleep(1.99)
-                start_trading = get_tick()+2
+                sleep(1.99)
 
             else: #logic for if the price sits somewhere in a range that more than 3 cents away from an arb opportunity for EITHER direction, and our gross is not 0, use the converter
-                long_etf, short_etf = spreads()
+                long_etf, short_etf = portfolio.spreads()
                 if long_etf < -0.03 and short_etf < -0.03:
                     if INDX.net_position > 0:
                         REDEEM.Use(INDX.net_position)
-                        #sleep(1.99)
-                        start_trading = get_tick()+2
+                        sleep(1.99)
 
                     elif INDX.net_position < 0:
                         CREATE.Use(INDX.net_position)
-                        #sleep(1.99)
-                        start_trading = get_tick()+2
+                        sleep(1.99)
                 
         sleep(0.01) #eep a little bit to prevent accidental overloading of the API when nothing is happening
         tick, status = get_tick()
