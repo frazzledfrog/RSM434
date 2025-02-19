@@ -129,7 +129,7 @@ def main(): #our main trading loop
         if portfolio.local >= 100000: #use the leases to neutralize gross position if it makes sense to do so
             REDEEM.Use()
             portfolio.local -= 100000
-            print("neutralizing position...")
+            print("neutralizing position... 乁༼☯‿☯✿༽ㄏ")
             sleep(2)
             
         elif portfolio.local <= -100000:
@@ -144,12 +144,12 @@ def main(): #our main trading loop
                 if portfolio.local > 0:
                     REDEEM.Use(portfolio.local)
                     portfolio.local = 0
-                    print("neutralizing position...")
+                    print("neutralizing position... 乁༼☯‿☯✿༽ㄏ")
                     sleep(2)
                 elif portfolio.local < 0:
                     CREATE.Use(abs(portfolio.local))
                     portfolio.local = 0
-                    print("neutralizing position...")
+                    print("neutralizing position... 乁༼☯‿☯✿༽ㄏ")
                     sleep(2)
         
         tick, status = get_tick()
